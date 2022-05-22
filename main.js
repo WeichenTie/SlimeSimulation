@@ -58,7 +58,7 @@ const fPheromoneShader = `#version 300 es
 
     void main() {
         vec4 texColor = texture(uTexture, fTexCoords);
-        fragColor =  texColor;
+        fragColor =  vec4(texColor.xyz, max(texColor.w - 0.003, 0.0));
     }
 `
 // render slime shaders
@@ -83,7 +83,7 @@ const fRenderShader = `#version 300 es
     out vec4 fragColor;
 
     void main() {
-        fragColor = texture(uTexture, fTexCoords) ;
+        fragColor = texture(uTexture, fTexCoords);
     }
 `
 
@@ -164,6 +164,7 @@ function createTransformFeedback(gl, buffer) {
 }
 
 // get canvas and gl context
+/** @type {HTMLCanvasElement} */
 const canvas = document.getElementById('gl-canvas');
 const gl = canvas.getContext('webgl2' );
 gl.canvas.width = 1920;
@@ -277,6 +278,10 @@ vaoAddBuffer(gl, renderVAO, viewportVBO, renderLayout);
 
 // Pre-render setup
 gl.clearColor(0,0,0,1);
+gl.enable(gl.DEPTH_TEST);
+gl.enable(gl.BLEND);
+gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
 let current = {
     updateVA: updateAgentVAO1,  // read from position1
     tf: agentTF2,                      // write to position2
@@ -301,13 +306,13 @@ function render(time) {
     gl.bindFramebuffer(gl.FRAMEBUFFER, frameRenderBuffer);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.colorMask(true, true, true, true);
-    gl.clearColor(0,0,0, 0.1);
+    gl.clearColor(0,0,0, 1.0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // TODO: Update phero texture
     gl.useProgram(updatePheromoneProg);
     gl.bindVertexArray(updatePheromoneVAO);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
+    
 
     // UPDATE AGENTs
 
@@ -340,6 +345,7 @@ function render(time) {
     // Render phero texture
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, canvas.width, canvas.height);
+    gl.clearColor(0,0,0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.useProgram(renderProg);
     
@@ -347,8 +353,6 @@ function render(time) {
     gl.uniform1i(renderProgLocs.uTexture, 0);
     
     gl.drawArrays(gl.TRIANGLES, 0, 6);
-    gl.clearColor(0,0,0, 0.5);
-    gl.clear(gl.COLOR_BUFFER_BIT);
     {
         const temp = current;
         current = next;
