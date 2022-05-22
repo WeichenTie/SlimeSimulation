@@ -1,32 +1,27 @@
 import { GUI } from './gui/dat.gui.module.js';
 const SETTINGS = {
-    AGENT_RCOLOR : 1,
-    AGENT_GCOLOR : 1,
-    AGENT_BCOLOR : 1,
+    AGENT_RCOLOR : 0.4,
+    AGENT_GCOLOR : 0.4,
+    AGENT_BCOLOR : 0.5,
     SENSOR_ANGLE : 60,
-    SENSOR_DISTANCE : 20,
-    SENSOR_LENGTH_RESOLUTION: 20,
-    SENSOR_THETA_RESOLUTION: 30,
+    SENSOR_DISTANCE : 3,
+    SENSOR_LENGTH_RESOLUTION: 5,
+    SENSOR_THETA_RESOLUTION: 5,
     TRAIL_EVAPORATE_SPEED : 3,
-    TURN_SPEED : 0.1,
-    WANDER_STRENGTH : 0.1,
 }
 const gui = new GUI({name: 'My GUI'});
 
 
 gui.domElement.id = 'gui';
 
-
 gui.add(SETTINGS, 'AGENT_RCOLOR', 0, 1, 0.01).name('Agent R Color');
 gui.add(SETTINGS, 'AGENT_GCOLOR', 0, 1, 0.01).name('Agent G Color');
 gui.add(SETTINGS, 'AGENT_BCOLOR', 0, 1, 0.01).name('Agent B Color');
 
-gui.add(SETTINGS, 'SENSOR_ANGLE', 0, 360, 0.01).name('Sensor Angle');
-gui.add(SETTINGS, 'SENSOR_DISTANCE', 1, 50, 0.01).name('Sensor Distance');
-gui.add(SETTINGS, 'SENSOR_LENGTH_RESOLUTION', 0, 20, 1).name('Sensor Length Resolution');
-gui.add(SETTINGS, 'SENSOR_THETA_RESOLUTION', 0, 30, 3).name('Sensor Theta Resolution');
-gui.add(SETTINGS, 'TURN_SPEED', 0, 1, 0.001).name('Turn Speed');
-gui.add(SETTINGS, 'WANDER_STRENGTH', 0, 1, 0.001).name('Wander Strength');
+gui.add(SETTINGS, 'SENSOR_ANGLE', 0, 360).name('Sensor Angle');
+gui.add(SETTINGS, 'SENSOR_DISTANCE', 0, 15).name('Sensor Distance');
+gui.add(SETTINGS, 'SENSOR_LENGTH_RESOLUTION', 0, 10).name('Sensor Length Resolution');
+gui.add(SETTINGS, 'SENSOR_THETA_RESOLUTION', 0, 10).name('Sensor Theta Resolution');
 
 gui.add(SETTINGS, 'TRAIL_EVAPORATE_SPEED', 0.00, 10.00, 0.001).name('Trail Evaporate Speed');
 
@@ -43,39 +38,18 @@ const vAgentShader = `#version 300 es
     uniform float uSensorDistance;
     uniform float uSensorLengthResolution;
     uniform float uSensorThetaResolution;
-    uniform float uTurnSpeed;
-    uniform float uWanderStrength;
+
     out vec2 newPosition;
     out float newAngle;
 
-    float rand(vec2 co){
-        return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
-    }
+
 
     vec2 euclideanModulo(vec2 n, vec2 m) {
         return mod(mod(n, m) + m, m);
     }
 
-    vec2 getNewPosition(vec2 oldPos, vec2 velocity, vec2 dimensions) {
-        vec2 newPos = oldPos + velocity;
-        if (newPos.x < 0.0) {
-            newPos.x = 0.0;
-        }
-        else if (newPos.x >= dimensions.x) {
-            newPos.x = 2.0 * dimensions.x - newPos.x;
-        }
-        if (newPos.y < 0.0) {
-            newPos.y = 0.0;
-        }
-        else if (newPos.y >= dimensions.y) {
-            newPos.y = 2.0 * dimensions.y - newPos.y;
-        }
-        return newPos;
-    }
-
     float getDensestAngle(sampler2D heatMap, vec2 position, float angle, float sensAngle, float sensDist, float numRays, float samplesPerRay) {
-        float raysPerSector = numRays / 3.0;
-        float angleOffset = (sensAngle / 3.0) / (raysPerSector + 1.0);
+        float angleOffset = sensAngle / numRays;
         
         float leftAngle = 0.0;
         float midAngle = 0.0;
@@ -83,41 +57,40 @@ const vAgentShader = `#version 300 es
         
         float startAngle = angle - sensAngle / 2.0;
         float leftThreshold = startAngle + sensAngle / 3.0;
-        float midThreshold = startAngle + 2.0 * sensAngle / 3.0;
+        float midThreshold = startAngle + sensAngle / 1.5;
+        float rightThreshold = sensAngle;
 
         float currentRayAngle = startAngle;
-        for (int i = 0; i < int(raysPerSector); i++) {
+        while (currentRayAngle < leftThreshold) {
             vec2 rayVec = vec2(sensDist * cos(currentRayAngle), sensDist * sin(currentRayAngle));
             vec2 raySegment = rayVec / samplesPerRay;
-            vec2 currentSeg = position + raySegment;
+            vec2 currentSeg = position;
             for (int i = 0; i < int(samplesPerRay); ++i) {
-                vec4 texCoord = (uMVP * vec4(currentSeg/ 2.0, 0, 1)) + 1.0;
+                vec4 texCoord = (uMVP * vec4(currentSeg, 0, 1) + 1.0) / 2.0;
                 vec4 sampledTex = texture(uTexture, vec2(texCoord.xy));
                 leftAngle += (sampledTex.x + sampledTex.y + sampledTex.z);
                 currentSeg += raySegment;
             }
             currentRayAngle += angleOffset;
         }
-        currentRayAngle = leftThreshold;
-        for (int i = 0; i < int(raysPerSector); i++) {
+        while (currentRayAngle < midThreshold) {
             vec2 rayVec = vec2(sensDist * cos(currentRayAngle), sensDist * sin(currentRayAngle));
             vec2 raySegment = rayVec / samplesPerRay;
-            vec2 currentSeg = position + raySegment;
+            vec2 currentSeg = position;
             for (int i = 0; i < int(samplesPerRay); ++i) {
-                vec4 texCoord = (uMVP * vec4(currentSeg/ 2.0, 0, 1)) + 1.0;
+                vec4 texCoord = (uMVP * vec4(currentSeg, 0, 1) + 1.0) / 2.0;
                 vec4 sampledTex = texture(uTexture, vec2(texCoord.xy));
                 midAngle += (sampledTex.x + sampledTex.y + sampledTex.z);
                 currentSeg += raySegment;
             }
             currentRayAngle += angleOffset;
         }
-        currentRayAngle = midThreshold;
-        for (int i = 0; i <= int(raysPerSector); i++) {
+        while (currentRayAngle <= rightThreshold) {
             vec2 rayVec = vec2(sensDist * cos(currentRayAngle), sensDist * sin(currentRayAngle));
             vec2 raySegment = rayVec / samplesPerRay;
-            vec2 currentSeg = position + raySegment;
+            vec2 currentSeg = position;
             for (int i = 0; i < int(samplesPerRay); ++i) {
-                vec4 texCoord = (uMVP * vec4(currentSeg/ 2.0, 0, 1)) + 1.0;
+                vec4 texCoord = (uMVP * vec4(currentSeg, 0, 1) + 1.0) / 2.0;
                 vec4 sampledTex = texture(uTexture, vec2(texCoord.xy));
                 rightAngle += (sampledTex.x + sampledTex.y + sampledTex.z);
                 currentSeg += raySegment;
@@ -128,37 +101,29 @@ const vAgentShader = `#version 300 es
         if (midAngle >= leftAngle && midAngle >= rightAngle) {
             return angle;
         }
-        else if(leftAngle < rightAngle){
-            return startAngle + 5.0 * sensAngle / 6.0;
-        }
         else if (leftAngle > rightAngle) {
             return startAngle + sensAngle / 6.0;
         }
-        return angle;
+        else {
+            return startAngle + 5.0 * sensAngle / 6.0;
+        }
+        return currentRayAngle;
     }
 
     void main() {
+        newAngle = oldAngle;
         float densestAngle = getDensestAngle(
-            uTexture,
-            oldPosition,
-            oldAngle,
-            uSensorAngle,
-            uSensorDistance,
-            uSensorThetaResolution,
-            uSensorLengthResolution
-        );
-        densestAngle = densestAngle + uWanderStrength*rand(vec2(densestAngle, oldPosition.x + oldPosition.y));
-        
-        float deltaAngle = densestAngle - oldAngle;
-        
-        float finalAngle = oldAngle + uTurnSpeed * deltaAngle;
-
+                                uTexture,
+                                oldPosition,
+                                oldAngle,
+                                uSensorAngle,
+                                uSensorDistance,
+                                uSensorThetaResolution,
+                                uSensorLengthResolution
+                            );
         newPosition = euclideanModulo(
-            oldPosition + 
-            1.001 * vec2(cos(finalAngle), sin(finalAngle)),
+            oldPosition + 1.0 * vec2(cos(densestAngle), sin(densestAngle)),
             canvasDimensions);
-        
-        newAngle = finalAngle;
         gl_PointSize = 1.0;
         gl_Position = uMVP * vec4(newPosition, 0 , 1);
     }
@@ -324,28 +289,17 @@ const updateAgentProgLocs = {
     uSensorLengthResolution: gl.getUniformLocation(updateAgentProg, 'uSensorLengthResolution'),
     canvasDimensions: gl.getUniformLocation(updateAgentProg, 'canvasDimensions'),
     uColor: gl.getUniformLocation(updateAgentProg, 'uColor'),
-    uTexture: gl.getUniformLocation(updateAgentProg, 'uTexture'),
-    uTurnSpeed: gl.getUniformLocation(updateAgentProg, 'uTurnSpeed'),
-    uWanderStrength: gl.getUniformLocation(updateAgentProg, 'uWanderStrength')
+    uTexture: gl.getUniformLocation(updateAgentProg, 'uTexture')
 }
 
 // load in the agents
-const numAgents = 150000;
+const numAgents = 100000;
 const agentsArr = [];
 for (let i = 0; i < numAgents; i++) {
     agentsArr.push(Math.random() * canvas.width);
     agentsArr.push(Math.random() * canvas.height);
     agentsArr.push(Math.random() * Math.PI * 2);
 }
-
-// for (let i = 0; i < numAgents; i++) {
-//     const theta = Math.random() * Math.PI * 2;
-//     const offset = 250;
-    
-//     agentsArr.push(canvas.width / 2 + 2 * offset * Math.random() - offset) ;
-//     agentsArr.push(canvas.height / 2 + 2 * offset * Math.random() - offset);
-//     agentsArr.push(theta);
-// }
 
 // Create agents VBO
 const agentsVBO1 = createBuffer(gl, gl.ARRAY_BUFFER, new Float32Array(agentsArr), gl.DYNAMIC_DRAW);
@@ -491,9 +445,8 @@ function render(time) {
         gl.uniform1f(updateAgentProgLocs.uSensorAngle, SETTINGS.SENSOR_ANGLE * Math.PI / 180.0);
         gl.uniform1f(updateAgentProgLocs.uSensorDistance, SETTINGS.SENSOR_DISTANCE);
         gl.uniform1f(updateAgentProgLocs.uSensorLengthResolution, SETTINGS.SENSOR_LENGTH_RESOLUTION);
-        gl.uniform1f(updateAgentProgLocs.uSensorThetaResolution, SETTINGS.SENSOR_THETA_RESOLUTION);
-        gl.uniform1f(updateAgentProgLocs.uTurnSpeed, SETTINGS.TURN_SPEED);
-        gl.uniform1f(updateAgentProgLocs.uWanderStrength, SETTINGS.WANDER_STRENGTH);
+        gl.uniform1f(updateAgentProgLocs.uSensorThetaResolution, SETTINGS.SENSOR_THETA_RESOLUTION * Math.PI / 180.0);
+
 
         // Transform feedback and draw to framebuffer
         gl.bindTransformFeedback(gl.TRANSFORM_FEEDBACK, current.tf);
