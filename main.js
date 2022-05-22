@@ -1,14 +1,12 @@
 // updatePosition shaders
+const dat = require('./gui/dat.gui');
 const vAgentShader = `#version 300 es
     in vec2 oldPosition;
     in float oldAngle;
 
-    //uniform float deltaTime;
-    // uniform float velocity;
     uniform vec2 canvasDimensions;
     uniform mat4 uMVP;
     uniform sampler2D uTexture;
-    //uniform vec2 uSensor;
 
     out vec2 newPosition;
     out float newAngle;
@@ -33,13 +31,50 @@ const vAgentShader = `#version 300 es
 
         float currentRayAngle = startAngle;
         while (currentRayAngle < leftThreshold) {
+            vec2 rayVec = vec2(sensDist * cos(currentRayAngle), sensDist * sin(currentRayAngle));
+            vec2 raySegment = rayVec / samplesPerRay;
+            vec2 currentSeg = position;
+            for (int i = 0; i < int(samplesPerRay); ++i) {
+                vec4 texCoord = (uMVP * vec4(currentSeg, 0, 1) + 1.0) / 2.0;
+                vec4 sampledTex = texture(uTexture, vec2(texCoord.xy));
+                leftAngle += sampledTex.x;
+                currentSeg += raySegment;
+            }
             currentRayAngle += angleOffset;
         }
         while (currentRayAngle < midThreshold) {
+            vec2 rayVec = vec2(sensDist * cos(currentRayAngle), sensDist * sin(currentRayAngle));
+            vec2 raySegment = rayVec / samplesPerRay;
+            vec2 currentSeg = position;
+            for (int i = 0; i < int(samplesPerRay); ++i) {
+                vec4 texCoord = (uMVP * vec4(currentSeg, 0, 1) + 1.0) / 2.0;
+                vec4 sampledTex = texture(uTexture, vec2(texCoord.xy));
+                midAngle += sampledTex.x;
+                currentSeg += raySegment;
+            }
             currentRayAngle += angleOffset;
         }
-        while (currentRayAngle < rightThreshold) {
+        while (currentRayAngle <= rightThreshold) {
+            vec2 rayVec = vec2(sensDist * cos(currentRayAngle), sensDist * sin(currentRayAngle));
+            vec2 raySegment = rayVec / samplesPerRay;
+            vec2 currentSeg = position;
+            for (int i = 0; i < int(samplesPerRay); ++i) {
+                vec4 texCoord = (uMVP * vec4(currentSeg, 0, 1) + 1.0) / 2.0;
+                vec4 sampledTex = texture(uTexture, vec2(texCoord.xy));
+                rightAngle += sampledTex.x;
+                currentSeg += raySegment;
+            }
             currentRayAngle += angleOffset;
+        }
+
+        if (midAngle >= leftAngle && midAngle >= rightAngle) {
+            return angle;
+        }
+        else if (leftAngle > rightAngle) {
+            return startAngle + sensAngle / 6.0;
+        }
+        else {
+            return startAngle + 5.0 * sensAngle / 6.0;
         }
         return currentRayAngle;
     }
@@ -50,7 +85,7 @@ const vAgentShader = `#version 300 es
         newPosition = euclideanModulo(
             oldPosition + 1.0 * vec2(cos(densestAngle), sin(densestAngle)),
             canvasDimensions);
-        gl_PointSize = 50.0;
+        gl_PointSize = 1.0;
         gl_Position = uMVP * vec4(newPosition, 0 , 1);
     }
 `
@@ -61,7 +96,7 @@ const fAgentShader = `#version 300 es
 
     out vec4 fragColor;
     void main() {
-        fragColor = vec4(1,0,0,1);
+        fragColor = vec4(0.7647,0.69411,0.88235,1);
     }
 `
 // updatePheromone shaders
@@ -180,7 +215,7 @@ function createTexture2D(gl, texI) {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-
+    
     return texture;
 }
 
@@ -196,8 +231,8 @@ function createTransformFeedback(gl, buffer) {
 /** @type {HTMLCanvasElement} */
 const canvas = document.getElementById('gl-canvas');
 const gl = canvas.getContext('webgl2');
-gl.canvas.width = 1920;
-gl.canvas.height = 1080;
+gl.canvas.width = 2560;
+gl.canvas.height = 1440;
 gl.viewport(0, 0, canvas.width, canvas.height);
 // Create Programs
 const updateAgentProg = createProgram(gl, vAgentShader, fAgentShader, ['newPosition', 'newAngle']);
@@ -215,7 +250,7 @@ const updateAgentProgLocs = {
 }
 
 // load in the agents
-const numAgents = 100;
+const numAgents = 100000;
 const agentsArr = [];
 for (let i = 0; i < numAgents; i++) {
     agentsArr.push(Math.random() * canvas.width);
@@ -246,9 +281,9 @@ const agentTF2 = createTransformFeedback(gl, agentsVBO2);
 const viewportVBO = createBuffer(gl, gl.ARRAY_BUFFER, new Float32Array([
     -1.0, -1.0,     0, 0,
     -1.0,  1.0,     0, 1,
-     1.0,  1.0,     1, 1,
-     1.0,  1.0,     1, 1,
-     1.0, -1.0,     1, 0,
+    1.0,  1.0,     1, 1,
+    1.0,  1.0,     1, 1,
+    1.0, -1.0,     1, 0,
     -1.0, -1.0,     0, 0
 ]), gl.STATIC_DRAW);
 
@@ -304,28 +339,16 @@ const renderLayout = [
 const renderVAO = createVAO(gl);
 vaoAddBuffer(gl, renderVAO, viewportVBO, renderLayout);
 
-// Sets the sensor pixels
-function createSensor(sensDist, angle) {
-    const sections = 3;
-    const sensAngle = angle / sections;
-    const senseGrid = [];
-    for (let x = -sensDist; x <= sensDist; x++) { // 
-        for (let y = -sensDist; y <= sensDist; y++) {
-            const angle = Math.abs(Math.atan2(y, x));
-            if (x*x + y*y <= sensDist * sensDist && sensAngle/2 > angle) {
-                senseGrid.push(x);
-                senseGrid.push(y);
-            }
-        }
-    }
-    return senseGrid;
-}
-const sensor = createSensor(100, Math.PI / 6);
+
+////////////////////////////////////////////////////////////////
+//                         GUI
+////////////////////////////////////////////////////////////////
+GUI
 
 // Pre-render setup
 gl.clearColor(0,0,0,1);
-gl.enable(gl.BLEND);
-gl.blendFunc(gl.SRC_ALPHA, gl.DST_ALPHA);
+//gl.enable(gl.BLEND);
+//gl.blendFunc(gl.SRC_ALPHA, gl.DST_ALPHA);
 
 let current = {
     updateVA: updateAgentVAO1,  // read from position1
@@ -353,7 +376,7 @@ function render(time) {
         gl.viewport(0, 0, canvas.width, canvas.height);
         gl.colorMask(true, true, true, true);
         gl.clearColor(0,0,0, 1.0);
-        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+        gl.clear(gl.COLOR_BUFFER_BIT);
         // TODO: Update phero texture
         gl.useProgram(updatePheromoneProg);
         gl.bindVertexArray(updatePheromoneVAO);
